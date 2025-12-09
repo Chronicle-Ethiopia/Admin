@@ -9,13 +9,16 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { ChevronLeft, ChevronRight, MoreHorizontal, Plus, Search, Edit, Trash2, Eye } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreHorizontal, Plus, Search, Edit, Trash2, Eye, Download, CheckCircle, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 export interface Column<T> {
   key: keyof T | string;
@@ -31,7 +34,77 @@ interface DataTableProps<T> {
   onEdit?: (item: T) => void;
   onDelete?: (item: T) => void;
   onView?: (item: T) => void;
+  onBulkDelete?: (items: T[]) => void;
+  onBulkApprove?: (items: T[]) => void;
+  onBulkReject?: (items: T[]) => void;
   addLabel?: string;
+  exportFileName?: string;
+}
+
+function exportToCSV<T extends { id: string }>(data: T[], columns: Column<T>[], filename: string) {
+  const getValue = (item: T, key: keyof T | string): any => {
+    if (typeof key === 'string' && key.includes('.')) {
+      return key.split('.').reduce((obj: any, k) => obj?.[k], item);
+    }
+    return item[key as keyof T];
+  };
+
+  const headers = columns.map(col => col.header).join(',');
+  const rows = data.map(item => 
+    columns.map(col => {
+      const val = getValue(item, col.key);
+      const strVal = String(val ?? '').replace(/"/g, '""');
+      return `"${strVal}"`;
+    }).join(',')
+  );
+  
+  const csv = [headers, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}.csv`;
+  link.click();
+  toast.success(`Exported ${data.length} rows to CSV`);
+}
+
+function exportToExcel<T extends { id: string }>(data: T[], columns: Column<T>[], filename: string) {
+  const getValue = (item: T, key: keyof T | string): any => {
+    if (typeof key === 'string' && key.includes('.')) {
+      return key.split('.').reduce((obj: any, k) => obj?.[k], item);
+    }
+    return item[key as keyof T];
+  };
+
+  // Create XML for Excel
+  let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
+  xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+  xml += '<Worksheet ss:Name="Sheet1"><Table>';
+  
+  // Headers
+  xml += '<Row>';
+  columns.forEach(col => {
+    xml += `<Cell><Data ss:Type="String">${col.header}</Data></Cell>`;
+  });
+  xml += '</Row>';
+  
+  // Data rows
+  data.forEach(item => {
+    xml += '<Row>';
+    columns.forEach(col => {
+      const val = getValue(item, col.key);
+      xml += `<Cell><Data ss:Type="String">${String(val ?? '').replace(/[<>&]/g, '')}</Data></Cell>`;
+    });
+    xml += '</Row>';
+  });
+  
+  xml += '</Table></Worksheet></Workbook>';
+  
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}.xls`;
+  link.click();
+  toast.success(`Exported ${data.length} rows to Excel`);
 }
 
 export function DataTable<T extends { id: string }>({
@@ -42,10 +115,15 @@ export function DataTable<T extends { id: string }>({
   onEdit,
   onDelete,
   onView,
+  onBulkDelete,
+  onBulkApprove,
+  onBulkReject,
   addLabel = 'Add New',
+  exportFileName = 'export',
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const perPage = 10;
 
   const filteredData = searchKey
@@ -64,30 +142,132 @@ export function DataTable<T extends { id: string }>({
     return item[key as keyof T];
   };
 
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedData.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedData.map(item => item.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const selectedItems = data.filter(item => selectedIds.has(item.id));
+  const hasBulkActions = onBulkDelete || onBulkApprove || onBulkReject;
+
+  const handleBulkDelete = () => {
+    if (onBulkDelete && selectedItems.length > 0) {
+      onBulkDelete(selectedItems);
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleBulkApprove = () => {
+    if (onBulkApprove && selectedItems.length > 0) {
+      onBulkApprove(selectedItems);
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleBulkReject = () => {
+    if (onBulkReject && selectedItems.length > 0) {
+      onBulkReject(selectedItems);
+      setSelectedIds(new Set());
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          {/* Bulk Actions */}
+          {hasBulkActions && selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
+              <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
+              {onBulkApprove && (
+                <Button variant="outline" size="sm" onClick={handleBulkApprove} className="gap-1">
+                  <CheckCircle className="w-4 h-4 text-success" />
+                  Approve
+                </Button>
+              )}
+              {onBulkReject && (
+                <Button variant="outline" size="sm" onClick={handleBulkReject} className="gap-1">
+                  <XCircle className="w-4 h-4 text-warning" />
+                  Reject
+                </Button>
+              )}
+              {onBulkDelete && (
+                <Button variant="outline" size="sm" onClick={handleBulkDelete} className="gap-1 text-destructive hover:text-destructive">
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </Button>
+              )}
+            </div>
+          )}
         </div>
-        {onAdd && (
-          <Button onClick={onAdd} className="gap-2">
-            <Plus className="w-4 h-4" />
-            {addLabel}
-          </Button>
-        )}
+        
+        <div className="flex items-center gap-2">
+          {/* Export Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportToCSV(filteredData, columns, exportFileName)}>
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportToExcel(filteredData, columns, exportFileName)}>
+                Export as Excel
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => exportToCSV(selectedItems, columns, `${exportFileName}_selected`)} disabled={selectedIds.size === 0}>
+                Export Selected (CSV)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          {onAdd && (
+            <Button onClick={onAdd} className="gap-2">
+              <Plus className="w-4 h-4" />
+              {addLabel}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
+              {hasBulkActions && (
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={paginatedData.length > 0 && selectedIds.size === paginatedData.length}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </TableHead>
+              )}
               {columns.map((column) => (
                 <TableHead key={String(column.key)} className="font-semibold">
                   {column.header}
@@ -102,7 +282,7 @@ export function DataTable<T extends { id: string }>({
             {paginatedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length + 1}
+                  colSpan={columns.length + (hasBulkActions ? 2 : 1)}
                   className="text-center py-8 text-muted-foreground"
                 >
                   No data found
@@ -111,6 +291,14 @@ export function DataTable<T extends { id: string }>({
             ) : (
               paginatedData.map((item) => (
                 <TableRow key={item.id} className="hover:bg-muted/50">
+                  {hasBulkActions && (
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        onCheckedChange={() => toggleSelect(item.id)}
+                      />
+                    </TableCell>
+                  )}
                   {columns.map((column) => (
                     <TableCell key={String(column.key)}>
                       {column.render
