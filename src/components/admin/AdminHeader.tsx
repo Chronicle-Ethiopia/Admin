@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Bell, Search, Settings, ExternalLink, User, MessageSquare, Heart, UserPlus, Calendar } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, Search, Settings, ExternalLink, User, MessageSquare, Heart, UserPlus, Calendar, LogOut, Shield } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
   Popover,
@@ -19,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/lib/supabase';
 
 interface AdminHeaderProps {
@@ -48,6 +52,8 @@ type Notification = {
 };
 
 export function AdminHeader({ title }: AdminHeaderProps) {
+  const { user, profile, signOut } = useAuth();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -316,10 +322,14 @@ export function AdminHeader({ title }: AdminHeaderProps) {
       window.open(result.url, '_blank');
     } else {
       // Navigate to admin page
-      window.location.href = result.url;
+      navigate(result.url);
     }
     setIsSearchOpen(false);
     setSearchQuery('');
+  };
+
+  const handleNavigation = (path: string) => {
+    navigate(path);
   };
 
   return (
@@ -422,19 +432,61 @@ export function AdminHeader({ title }: AdminHeaderProps) {
           </DropdownMenu>
           
           <ThemeToggle />
-          <Button variant="ghost" size="icon" className="h-9 w-9">
+          <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => handleNavigation('/settings')}>
             <Settings className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-3 ml-2 pl-4 border-l border-border">
-            <Avatar className="h-9 w-9">
-              <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=admin" />
-              <AvatarFallback>AD</AvatarFallback>
-            </Avatar>
-            <div className="hidden lg:block">
-              <p className="text-sm font-medium text-foreground">Admin User</p>
-              <p className="text-xs text-muted-foreground">Administrator</p>
-            </div>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <div className="flex items-center gap-3 ml-2 pl-4 border-l border-border cursor-pointer">
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={profile?.profile_image_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.full_name || user?.email}`} />
+                  <AvatarFallback>
+                    {profile?.full_name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 
+                     user?.email?.split('@')[0].toUpperCase().slice(0, 2) || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden lg:block">
+                  <p className="text-sm font-medium text-foreground">{profile?.full_name || 'User'}</p>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-xs capitalize">
+                      {profile?.role || 'user'}
+                    </Badge>
+                    {profile?.is_active && (
+                      <div className="w-2 h-2 bg-green-500 rounded-full" title="Active" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{profile?.full_name || 'User'}</p>
+                  <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer" onClick={() => handleNavigation('/profile')}>
+                <User className="mr-2 h-4 w-4" />
+                <span>Profile</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer" onClick={() => handleNavigation('/settings')}>
+                <Settings className="mr-2 h-4 w-4" />
+                <span>Settings</span>
+              </DropdownMenuItem>
+              {profile?.role === 'admin' && (
+                <DropdownMenuItem className="cursor-pointer" onClick={() => handleNavigation('/admin')}>
+                  <Shield className="mr-2 h-4 w-4" />
+                  <span>Admin Panel</span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer text-red-600" onClick={signOut}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Log out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
